@@ -110,18 +110,17 @@ func Base64Decode(data string) []byte {
 	return res
 }
 
-func (ch *BlockChain) Balance(addr string) uint64 {
+func (ch *BlockChain) Balance(addr string, size uint64) uint64 {
 	var (
-		balance uint64
 		sblock  string
 		block   *Block
+		balance uint64
 	)
-	rows, err := ch.DB.Query("SELECT Block from Blockchain WHERE Id <= $1 ORDER BY Id DESC", ch.index)
+	rows, err := ch.DB.Query("SELECT Block FROM BlockChain WHERE Id <= $1 ORDER BY Id DESC", size)
 	if err != nil {
 		return balance
 	}
 	defer rows.Close()
-
 	for rows.Next() {
 		rows.Scan(&sblock)
 		block, _ = DeserializeBlock(sblock)

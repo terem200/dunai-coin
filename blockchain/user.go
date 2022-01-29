@@ -25,7 +25,7 @@ func NewUser() *User {
 // LoadUser purse == public key for user converted to string
 func LoadUser(purse string) *User {
 	priv := ParsePrivate(purse)
-	if priv != nil {
+	if priv == nil {
 		return nil
 	}
 
@@ -63,12 +63,16 @@ func StringPublic(pub *rsa.PublicKey) string {
 	return Base64Encode(x509.MarshalPKCS1PublicKey(pub))
 }
 
+func (u *User) Purse() string {
+	return StringPrivate(u.Private())
+}
+
 func StringPrivate(pub *rsa.PrivateKey) string {
 	return Base64Encode(x509.MarshalPKCS1PrivateKey(pub))
 }
 
 func ParsePrivate(data string) *rsa.PrivateKey {
-	p, err := x509.ParsePKCS1PrivateKey([]byte(data))
+	p, err := x509.ParsePKCS1PrivateKey(Base64Decode(data)) // todo
 	if err != nil {
 		return nil
 	}

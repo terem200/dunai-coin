@@ -43,7 +43,7 @@ func NewBlock(miner string, prevHash []byte) *Block {
 }
 
 func (block *Block) Accept(chain *BlockChain, user *User, ch chan bool) error {
-	if !block.TransactionsIsValid(chain) {
+	if !block.transactionsIsValid(chain, chain.Size()) {
 		return errors.New("transactions is not valid")
 	}
 
@@ -66,22 +66,20 @@ func (block *Block) Accept(chain *BlockChain, user *User, ch chan bool) error {
 	return nil
 }
 
-func (block *Block) TransactionsIsValid(chain *BlockChain) bool {
-	length := len(block.Transactions)
+func (block *Block) transactionsIsValid(chain *BlockChain, size uint64) bool {
+	lentxs := len(block.Transactions)
 	plusStorage := 0
-
-	for _, tx := range block.Transactions {
-		if tx.Sender == STORAGE_CHAIN {
+	for i := 0; i < lentxs; i++ {
+		if block.Transactions[i].Sender == STORAGE_CHAIN {
 			plusStorage = 1
 			break
 		}
 	}
-
-	if length == 0 || length > (TXS_LIMIT+plusStorage) {
+	if lentxs == 0 || lentxs > TXS_LIMIT+plusStorage {
 		return false
 	}
-	for i := 0; i < length-1; i++ {
-		for j := i + 1; j < length; j++ {
+	for i := 0; i < lentxs-1; i++ {
+		for j := i + 1; j < lentxs; j++ {
 			if bytes.Equal(block.Transactions[i].RandomBytes, block.Transactions[j].RandomBytes) {
 				return false
 			}
@@ -91,8 +89,7 @@ func (block *Block) TransactionsIsValid(chain *BlockChain) bool {
 			}
 		}
 	}
-
-	for i := 0; i < length; i++ {
+	for i := 0; i < lentxs; i++ {
 		tx := block.Transactions[i]
 		if tx.Sender == STORAGE_CHAIN {
 			if tx.Receiver != block.Miner || tx.Value != STORAGE_REWARD {
@@ -102,19 +99,17 @@ func (block *Block) TransactionsIsValid(chain *BlockChain) bool {
 			if !tx.isHashValid() {
 				return false
 			}
-			if !tx.isSignValid() {
+			if !tx.isHashValid() {
 				return false
 			}
 		}
-		if !block.isValidBalance(chain, tx.Sender) {
+		if !block.isValidBalance(chain, tx.Sender, size) {
 			return false
 		}
-
-		if !block.isValidBalance(chain, tx.Receiver) {
+		if !block.isValidBalance(chain, tx.Receiver, size) {
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -169,7 +164,7 @@ func (block *Block) addBalance(ch *BlockChain, receiver string, value uint64) {
 	if v, ok := block.Mapping[receiver]; ok {
 		balanceInChain = v
 	} else {
-		balanceInChain = ch.Balance(receiver)
+		balanceInChain = ch.Balance(receiver, ch.Size())
 	}
 
 	block.Mapping[receiver] = balanceInChain + value
@@ -193,7 +188,7 @@ func (block *Block) AddTransaction(chain *BlockChain, tx *Transaction) error {
 	if value, ok := block.Mapping[tx.Sender]; ok {
 		balanceInChain = value
 	} else {
-		balanceInChain = chain.Balance(tx.Sender)
+		balanceInChain = chain.Balance(tx.Sender, chain.Size())
 	}
 	if tx.Value > START_PERCENT && tx.ToStorage != STORAGE_REWARD {
 		return errors.New("storage reward missing")
@@ -209,35 +204,29 @@ func (block *Block) AddTransaction(chain *BlockChain, tx *Transaction) error {
 	return nil
 }
 
-func (block *Block) isValidBalance(chain *BlockChain, address string) bool {
-	if _, ok := block.Mapping[address]; ok {
+func (block *Block) isValidBalance(chain *BlockChain, address string, size uint64) bool {
+	if _, ok := block.Mapping[address]; !ok {
 		return false
 	}
-	length := len(block.Transactions)
-	balanceInChain := chain.Balance(address)
+	lentxs := len(block.Transactions)
+	balanceInChain := chain.Balance(address, size)
 	balanceSubBlock := uint64(0)
 	balanceAddBlock := uint64(0)
-
-	for i := 0; i < length; i++ {
-		tx := block.Transactions[i]
+	for j := 0; j < lentxs; j++ {
+		tx := block.Transactions[j]
 		if tx.Sender == address {
-			balanceSubBlock = tx.Value + tx.ToStorage
+			balanceSubBlock += tx.Value + tx.ToStorage
 		}
-
 		if tx.Receiver == address {
-			balanceAddBlock = tx.Value
+			balanceAddBlock += tx.Value
 		}
-
-		if tx.Receiver == address && STORAGE_CHAIN == address {
+		if STORAGE_CHAIN == address {
 			balanceAddBlock += tx.ToStorage
 		}
-
 	}
-
 	if (balanceInChain + balanceAddBlock - balanceSubBlock) != block.Mapping[address] {
 		return false
 	}
-
 	return true
 }
 
@@ -250,13 +239,13 @@ func SerializeBlock(b *Block) string {
 	return string(jstr)
 }
 
-func (block *Block) IsValid(chain *BlockChain) bool {
+func (block *Block) IsValid(chain *BlockChain, size uint64) bool {
 	switch {
 	case block == nil:
 		return false
 	case block.Difficulty != DIFFICULTY:
 		return false
-	case !block.isValidHash(chain, chain.Size()):
+	case !block.isValidHash(chain, size):
 		return false
 	case !block.isValidSign():
 		return false
@@ -264,13 +253,12 @@ func (block *Block) IsValid(chain *BlockChain) bool {
 		return false
 	case !block.isValidMapping():
 		return false
-	case !block.isValidTime(chain, chain.Size()):
+	case !block.isValidTime(chain):
 		return false
-	case !block.TransactionsIsValid(chain):
+	case !block.transactionsIsValid(chain, size):
 		return false
-	default:
-		return true
 	}
+	return true
 }
 
 func (block *Block) isValidHash(ch *BlockChain, idx uint64) bool {
@@ -328,7 +316,7 @@ func (block *Block) isValidMapping() bool {
 	return true
 }
 
-func (block *Block) isValidTime(chain *BlockChain, idx uint64) bool {
+func (block *Block) isValidTime(chain *BlockChain) bool {
 	btime, err := time.Parse(time.RFC3339, block.TimeStamp)
 	if err != nil {
 		return false
@@ -394,7 +382,7 @@ func ProofOfWork(blockHash []byte, diff uint8, ch chan bool) (nonce uint64) {
 				[]byte{},
 			))
 			if DEBUG {
-				fmt.Printf("Mining: %s", Base64Encode(hash))
+				fmt.Println(fmt.Sprintf("Mining: %s\n", Base64Encode(hash)))
 			}
 			intHash.SetBytes(hash)
 			if intHash.Cmp(target) == -1 {
